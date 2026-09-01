@@ -1,0 +1,22 @@
+{
+  "name": "modern-saas-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Portfolio/reference implementation demonstrating production patterns for a multi-tenant SaaS dashboard.",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c teal,cyan \"npm run dev -w @saas/api\" \"npm run dev -w @saas/web\"",
+    "build": "npm run build -w @saas/api && npm run build -w @saas/web",
+    "test": "npm run test -w @saas/api",
+    "start": "npm run start -w @saas/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

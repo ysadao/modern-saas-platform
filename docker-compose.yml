@@ -1,0 +1,35 @@
+services:
+  api:
+    build: .
+    ports:
+      - "4101:4101"
+    environment:
+      PORT: 4101
+      DATA_DIR: /app/data
+      JWT_ACCESS_SECRET: saas-demo-access-secret-change-me
+      JWT_REFRESH_SECRET: saas-demo-refresh-secret-change-me
+    volumes:
+      - saas-data:/app/data
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: saas
+      POSTGRES_PASSWORD: saas
+      POSTGRES_DB: saas
+    ports:
+      - "5433:5432"
+    volumes:
+      - saas-pg:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+
+volumes:
+  saas-data:
+  saas-pg:
