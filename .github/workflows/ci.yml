@@ -8,14 +8,33 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: saas
+        ports:
+          - 55431:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d saas"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://app:app@127.0.0.1:55431/saas
+      DEMO_EXPOSE_TOKENS: "true"
+      BCRYPT_ROUNDS: "4"
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - run: npm install
+      - run: npx prisma migrate deploy
+      - run: npm run db:seed
       - run: npm test
       - run: npm run build

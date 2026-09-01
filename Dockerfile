@@ -1,22 +1,32 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-COPY apps/api/package.json apps/api/
-COPY apps/web/package.json apps/web/
+COPY prisma ./prisma
 RUN npm install
 
-FROM node:22-alpine AS build
+FROM node:22-alpine AS web
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run build
+COPY package.json ./
+COPY web ./web
+RUN npx vite build --config web/vite.config.ts
+
+FROM node:22-alpine AS api
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json ./
+COPY prisma ./prisma
+COPY tsconfig.json ./
+COPY src ./src
+RUN npx prisma generate && npx tsc -p tsconfig.json
 
 FROM node:22-alpine
 WORKDIR /app
-ENV NODE_ENV=production PORT=4101
-COPY --from=build /app/package.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/apps/api/package.json ./apps/api/
-COPY --from=build /app/apps/api/dist ./apps/api/dist
-EXPOSE 4101
-CMD ["node", "apps/api/dist/index.js"]
+ENV NODE_ENV=production PORT=3101
+COPY package.json package-lock.json* ./
+COPY prisma ./prisma
+RUN npm install --omit=dev && npx prisma generate
+COPY --from=api /app/dist ./dist
+COPY --from=web /app/web/dist ./web/dist
+EXPOSE 3101
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]

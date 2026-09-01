@@ -1,35 +1,38 @@
 services:
-  api:
-    build: .
-    ports:
-      - "4101:4101"
-    environment:
-      PORT: 4101
-      DATA_DIR: /app/data
-      JWT_ACCESS_SECRET: saas-demo-access-secret-change-me
-      JWT_REFRESH_SECRET: saas-demo-refresh-secret-change-me
-    volumes:
-      - saas-data:/app/data
-    depends_on:
-      - postgres
-      - redis
-
   postgres:
     image: postgres:16-alpine
+    container_name: saas-pg
     environment:
-      POSTGRES_USER: saas
-      POSTGRES_PASSWORD: saas
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
       POSTGRES_DB: saas
     ports:
-      - "5433:5432"
+      - "55431:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d saas"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
     volumes:
       - saas-pg:/var/lib/postgresql/data
 
-  redis:
-    image: redis:7-alpine
+  app:
+    build: .
     ports:
-      - "6380:6379"
+      - "3101:3101"
+    environment:
+      DATABASE_URL: postgresql://app:app@postgres:5432/saas
+      PORT: 3101
+      NODE_ENV: production
+      JWT_ACCESS_SECRET: saas-demo-access-secret-change-me
+      JWT_REFRESH_SECRET: saas-demo-refresh-secret-change-me
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 7d
+      BCRYPT_ROUNDS: 10
+      DEMO_EXPOSE_TOKENS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
-  saas-data:
   saas-pg:

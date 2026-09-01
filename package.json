@@ -1,20 +1,50 @@
 {
   "name": "modern-saas-platform",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Portfolio/reference implementation demonstrating production patterns for a multi-tenant SaaS dashboard.",
-  "workspaces": [
-    "apps/api",
-    "apps/web"
-  ],
+  "type": "module",
+  "description": "Harbor — multi-tenant SaaS control plane with PostgreSQL, complete auth, RBAC, and a React SPA served by Express.",
   "scripts": {
-    "dev": "concurrently -n api,web -c teal,cyan \"npm run dev -w @saas/api\" \"npm run dev -w @saas/web\"",
-    "build": "npm run build -w @saas/api && npm run build -w @saas/web",
-    "test": "npm run test -w @saas/api",
-    "start": "npm run start -w @saas/api"
+    "dev": "concurrently -n api,web -c teal,cyan \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "tsx watch src/index.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "build": "prisma generate && tsc -p tsconfig.json && vite build --config web/vite.config.ts",
+    "start": "node dist/index.js",
+    "test": "node --import tsx --test --test-timeout=120000 tests/*.test.ts",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:push": "prisma db push",
+    "postinstall": "prisma generate"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.15.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.13.10",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "prisma": "^6.15.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0"
   },
   "engines": {
     "node": ">=20"
