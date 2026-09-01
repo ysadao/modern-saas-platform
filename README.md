@@ -86,7 +86,7 @@ Creating an organization makes the caller **OWNER**. Tenant isolation is enforce
 | GET | `/api/organizations/:id/audit` | JWT |
 | GET/POST | `/api/organizations/:id/projects` | JWT |
 | GET/PATCH/DELETE | `/api/projects/:id` | JWT |
-| GET | `/api/health` `/api/docs` | public |
+| GET | `/api/health` `/api/ready` `/api/docs` `/api/openapi.json` | public |
 
 Default listen port: **3101**. Machine-readable catalog: `GET /api/docs`.
 
@@ -122,7 +122,13 @@ Maps **3101** for the app and **55431** for Postgres 16 (`saas-pg`). The image b
 npm test
 ```
 
-Hits real Postgres (`DATABASE_URL` above). Coverage includes register → verify → login, refresh rotation, unverified login blocked, password reset, org isolation, viewer cannot create a project, and the seeded demo user.
+Hits real Postgres (`DATABASE_URL` above). Coverage includes register → verify → login, refresh rotation, unverified login blocked, password reset, org isolation, viewer cannot create a project, the seeded demo user, readiness, and request IDs.
+
+`GET /api/ready` pings Postgres. `GET /api/openapi.json` is the OpenAPI 3 spec. Every response includes `x-request-id`. Logs are JSON lines (`http_request`). SIGINT/SIGTERM close the HTTP server then disconnect Prisma.
+
+## What this is
+
+A **reference implementation** of senior SaaS patterns (tenancy, RBAC, session rotation, operational probes). It is not evidence of ten years running production Harbor at scale.
 
 ## License
 

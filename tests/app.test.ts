@@ -256,3 +256,19 @@ test("RBAC: viewer cannot create project", async () => {
   assert.equal(listed.status, 200);
   assert.equal(listed.data.projects.length, 1);
 });
+
+test("readiness pings postgres and request ids are echoed", async () => {
+  const ready = await fetch(`${base}/api/ready`);
+  assert.equal(ready.status, 200);
+  const body = await ready.json();
+  assert.equal(body.status, "ready");
+  assert.equal(body.db, "up");
+
+  const spec = await fetch(`${base}/api/openapi.json`);
+  assert.equal(spec.status, 200);
+  const openapi = await spec.json();
+  assert.equal(openapi.openapi, "3.0.3");
+
+  const custom = await fetch(`${base}/api/health`, { headers: { "x-request-id": "harbor-review-1" } });
+  assert.equal(custom.headers.get("x-request-id"), "harbor-review-1");
+});

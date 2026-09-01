@@ -5,6 +5,8 @@ import cors from "cors";
 import { config } from "./config.js";
 import { authMiddleware, type AuthedRequest } from "./middleware/auth.js";
 import { asyncHandler, errorHandler } from "./middleware/error.js";
+import { readiness, requestContext, securityHeaders } from "./observability.js";
+import { openApiSpec } from "./openapi.js";
 import { authRouter } from "./routes/auth.js";
 import { organizationRouter } from "./routes/organizations.js";
 import { projectRouter } from "./routes/projects.js";
@@ -13,6 +15,8 @@ import { listSessions, revokeSession } from "./services/auth.js";
 
 const ENDPOINTS = [
   { method: "GET", path: "/api/health", auth: false, description: "Liveness probe" },
+  { method: "GET", path: "/api/ready", auth: false, description: "Readiness: Postgres ping" },
+  { method: "GET", path: "/api/openapi.json", auth: false, description: "OpenAPI 3 spec" },
   { method: "GET", path: "/api/docs", auth: false, description: "JSON catalog of endpoints" },
   { method: "POST", path: "/api/auth/register", auth: false, description: "Register; issues email verification token" },
   { method: "POST", path: "/api/auth/login", auth: false, description: "Login; rate limited 10/min/IP; unverified emails 403" },
@@ -45,11 +49,17 @@ const ENDPOINTS = [
 export function createApp() {
   const app = express();
   app.set("trust proxy", 1);
+  app.use(requestContext);
+  app.use(securityHeaders);
   app.use(cors({ origin: true, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", service: "harbor", time: new Date().toISOString() });
+  });
+  app.get("/api/ready", asyncHandler(readiness));
+  app.get("/api/openapi.json", (_req, res) => {
+    res.json(openApiSpec);
   });
 
   app.get("/api/docs", (_req, res) => {
