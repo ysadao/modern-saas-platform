@@ -109,15 +109,28 @@ export function OrgPage() {
             <input placeholder="Description" value={projectDesc} onChange={(e) => setProjectDesc(e.target.value)} />
             <button type="submit">Add project</button>
           </form>
-          <ul className="list">
-            {projects.map((p) => (
-              <li key={p.id}>
-                <strong>{p.name}</strong>
-                <span className="pill">{p.status}</span>
-                <p>{p.description || "No description"}</p>
-              </li>
-            ))}
-          </ul>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th>Status</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <strong>{p.name}</strong>
+                  </td>
+                  <td>
+                    <span className="pill">{p.status}</span>
+                  </td>
+                  <td className="muted">{p.description || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
         <div>
           <h2>Members</h2>
@@ -130,17 +143,30 @@ export function OrgPage() {
             </select>
             <button type="submit">Invite</button>
           </form>
-          <ul className="list">
-            {members.map((m) => (
-              <li key={m.userId}>
-                <strong>
-                  {m.firstName} {m.lastName}
-                </strong>
-                <span className="pill">{m.role}</span>
-                <p>{m.email}</p>
-              </li>
-            ))}
-          </ul>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Email</th>
+                <th>Role</th>
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((m) => (
+                <tr key={m.userId}>
+                  <td>
+                    <strong>
+                      {m.firstName} {m.lastName}
+                    </strong>
+                  </td>
+                  <td className="mono">{m.email}</td>
+                  <td>
+                    <span className="pill">{m.role}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 

@@ -10,14 +10,9 @@ export class HttpError extends Error {
   }
 }
 
-export type Role = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
-
-export const ROLE_RANK: Record<Role, number> = {
-  VIEWER: 1,
-  MEMBER: 2,
-  ADMIN: 3,
-  OWNER: 4,
-};
+/** Re-export domain RBAC primitives for existing import sites. */
+export type { Role } from "./domain/rbac.js";
+export { ROLE_RANK } from "./domain/rbac.js";
 
 export function publicUser(user: {
   id: string;

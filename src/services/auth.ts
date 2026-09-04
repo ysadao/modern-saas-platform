@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { Prisma, type User } from "@prisma/client";
 import { config, DEMO_EMAIL, parseTtlMs } from "../config.js";
+import { decideRefresh } from "../domain/sessions.js";
 import { prisma } from "../db.js";
 import { HttpError, publicUser } from "../errors.js";
 import { writeAudit } from "../lib/audit.js";
@@ -153,23 +154,38 @@ export async function refresh(
   const session = await prisma.session.findFirst({
     where: { refreshTokenHash: tokenHash },
   });
-  if (!session || session.revokedAt) {
+  const decision = decideRefresh(session);
+
+  if (decision.action === "reject_unknown") {
     throw new HttpError(401, "Invalid refresh token");
   }
-  if (session.expiresAt.getTime() < Date.now()) {
+  if (decision.action === "revoke_family") {
+    await logoutAll(decision.userId);
+    await writeAudit({
+      userId: decision.userId,
+      action: "session.reuse_detected",
+      resource: "session",
+      resourceId: decision.sessionId,
+      metadata: { reason: "revoked_refresh_presented" },
+      ip: meta.ip ?? null,
+    });
+    throw new HttpError(401, "Invalid refresh token");
+  }
+  if (decision.action === "reject_expired") {
     throw new HttpError(401, "Refresh token expired");
   }
-  const user = await prisma.user.findUnique({ where: { id: session.userId } });
+
+  const user = await prisma.user.findUnique({ where: { id: decision.userId } });
   if (!user) throw new HttpError(401, "User not found");
 
   await prisma.session.update({
-    where: { id: session.id },
+    where: { id: decision.sessionId },
     data: { revokedAt: new Date() },
   });
 
   const tokens = await issueTokens(user, {
-    userAgent: meta.userAgent ?? session.userAgent,
-    ip: meta.ip ?? session.ip,
+    userAgent: meta.userAgent ?? session?.userAgent,
+    ip: meta.ip ?? session?.ip,
   });
   return { user: publicUser(user), ...tokens };
 }

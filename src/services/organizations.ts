@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Organization, OrganizationMember, Role } from "@prisma/client";
+import {
+  assertMinRole,
+  canChangeMemberRole,
+  canDeleteOrganization,
+  canLeaveOwnerSeat,
+  canRemoveMember,
+} from "../domain/rbac.js";
 import { prisma } from "../db.js";
-import { HttpError, ROLE_RANK } from "../errors.js";
+import { HttpError } from "../errors.js";
 import { writeAudit } from "../lib/audit.js";
 
 export const createOrgSchema = z.object({
@@ -35,6 +42,10 @@ function slugify(name: string) {
   );
 }
 
+function deny(decision: { ok: false; status: 403 | 400; message: string }): never {
+  throw new HttpError(decision.status, decision.message);
+}
+
 export async function requireMembership(
   organizationId: string,
   userId: string,
@@ -46,44 +57,60 @@ export async function requireMembership(
     where: { userId_organizationId: { userId, organizationId } },
   });
   if (!membership) throw new HttpError(403, "Not a member of this organization");
-  if (ROLE_RANK[membership.role] < ROLE_RANK[minRole]) {
-    throw new HttpError(403, `Requires ${minRole} role or higher`);
-  }
+  const gate = assertMinRole(membership.role, minRole);
+  if (!gate.ok) deny(gate);
   return { org, membership };
 }
 
 export async function createOrganization(userId: string, name: string, ip: string | null) {
-  const org = await prisma.organization.create({
-    data: {
-      name,
-      slug: `${slugify(name)}-${randomUUID().slice(0, 8)}`,
-      members: {
-        create: { userId, role: "OWNER" },
+  return prisma.$transaction(async (tx) => {
+    const org = await tx.organization.create({
+      data: {
+        name,
+        slug: `${slugify(name)}-${randomUUID().slice(0, 8)}`,
+        members: {
+          create: { userId, role: "OWNER" },
+        },
       },
-    },
+    });
+    await writeAudit(
+      {
+        userId,
+        organizationId: org.id,
+        action: "organization.created",
+        resource: "organization",
+        resourceId: org.id,
+        metadata: { name },
+        ip,
+      },
+      tx,
+    );
+    return org;
   });
-  await writeAudit({
-    userId,
-    organizationId: org.id,
-    action: "organization.created",
-    resource: "organization",
-    resourceId: org.id,
-    metadata: { name },
-    ip,
-  });
-  return org;
 }
 
 export async function listOrganizations(userId: string) {
   const memberships = await prisma.organizationMember.findMany({
     where: { userId },
-    include: { organization: true },
+    include: {
+      organization: {
+        include: {
+          _count: { select: { members: true, projects: true, auditLogs: true } },
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
-  return memberships.map((m) => ({
-    ...m.organization,
-    role: m.role,
-  }));
+  return memberships.map((m) => {
+    const { _count, ...organization } = m.organization;
+    return {
+      ...organization,
+      role: m.role,
+      memberCount: _count.members,
+      projectCount: _count.projects,
+      auditCount: _count.auditLogs,
+    };
+  });
 }
 
 export async function getOrganization(userId: string, orgId: string) {
@@ -93,33 +120,46 @@ export async function getOrganization(userId: string, orgId: string) {
 
 export async function updateOrganization(userId: string, orgId: string, name: string, ip: string | null) {
   await requireMembership(orgId, userId, "ADMIN");
-  const org = await prisma.organization.update({
-    where: { id: orgId },
-    data: { name },
+  return prisma.$transaction(async (tx) => {
+    const org = await tx.organization.update({
+      where: { id: orgId },
+      data: { name },
+    });
+    await writeAudit(
+      {
+        userId,
+        organizationId: orgId,
+        action: "organization.updated",
+        resource: "organization",
+        resourceId: orgId,
+        metadata: { name },
+        ip,
+      },
+      tx,
+    );
+    return org;
   });
-  await writeAudit({
-    userId,
-    organizationId: orgId,
-    action: "organization.updated",
-    resource: "organization",
-    resourceId: orgId,
-    metadata: { name },
-    ip,
-  });
-  return org;
 }
 
 export async function deleteOrganization(userId: string, orgId: string, ip: string | null) {
-  await requireMembership(orgId, userId, "OWNER");
-  await prisma.organization.delete({ where: { id: orgId } });
-  await writeAudit({
-    userId,
-    organizationId: orgId,
-    action: "organization.deleted",
-    resource: "organization",
-    resourceId: orgId,
-    metadata: {},
-    ip,
+  const { membership } = await requireMembership(orgId, userId, "OWNER");
+  const gate = canDeleteOrganization(membership.role);
+  if (!gate.ok) deny(gate);
+  // Audit before delete so the row survives org FK SetNull with a recorded action.
+  await prisma.$transaction(async (tx) => {
+    await writeAudit(
+      {
+        userId,
+        organizationId: orgId,
+        action: "organization.deleted",
+        resource: "organization",
+        resourceId: orgId,
+        metadata: {},
+        ip,
+      },
+      tx,
+    );
+    await tx.organization.delete({ where: { id: orgId } });
   });
 }
 
@@ -150,23 +190,28 @@ export async function inviteMember(
   await requireMembership(orgId, actorId, "ADMIN");
   const invitee = await prisma.user.findUnique({ where: { email } });
   if (!invitee) throw new HttpError(404, "No user with that email");
-  const existing = await prisma.organizationMember.findUnique({
-    where: { userId_organizationId: { userId: invitee.id, organizationId: orgId } },
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.organizationMember.findUnique({
+      where: { userId_organizationId: { userId: invitee.id, organizationId: orgId } },
+    });
+    if (existing) throw new HttpError(409, "User is already a member");
+    await tx.organizationMember.create({
+      data: { organizationId: orgId, userId: invitee.id, role },
+    });
+    await writeAudit(
+      {
+        userId: actorId,
+        organizationId: orgId,
+        action: "member.invited",
+        resource: "membership",
+        resourceId: invitee.id,
+        metadata: { email, role },
+        ip,
+      },
+      tx,
+    );
+    return { userId: invitee.id, email, role };
   });
-  if (existing) throw new HttpError(409, "User is already a member");
-  await prisma.organizationMember.create({
-    data: { organizationId: orgId, userId: invitee.id, role },
-  });
-  await writeAudit({
-    userId: actorId,
-    organizationId: orgId,
-    action: "member.invited",
-    resource: "membership",
-    resourceId: invitee.id,
-    metadata: { email, role },
-    ip,
-  });
-  return { userId: invitee.id, email, role };
 }
 
 export async function updateMemberRole(
@@ -177,31 +222,37 @@ export async function updateMemberRole(
   ip: string | null,
 ) {
   const { membership: actor } = await requireMembership(orgId, actorId, "ADMIN");
-  if (role === "OWNER" && actor.role !== "OWNER") {
-    throw new HttpError(403, "Only an OWNER can transfer ownership");
-  }
   const target = await prisma.organizationMember.findUnique({
     where: { userId_organizationId: { userId: targetUserId, organizationId: orgId } },
   });
   if (!target) throw new HttpError(404, "Member not found");
-  if (target.role === "OWNER" && role !== "OWNER") {
-    const owners = await prisma.organizationMember.count({
-      where: { organizationId: orgId, role: "OWNER" },
-    });
-    if (owners <= 1) throw new HttpError(400, "Cannot demote the last owner");
-  }
-  await prisma.organizationMember.update({
-    where: { id: target.id },
-    data: { role },
+
+  const roleGate = canChangeMemberRole(actor.role, target.role, role);
+  if (!roleGate.ok) deny(roleGate);
+
+  const owners = await prisma.organizationMember.count({
+    where: { organizationId: orgId, role: "OWNER" },
   });
-  await writeAudit({
-    userId: actorId,
-    organizationId: orgId,
-    action: "member.role_updated",
-    resource: "membership",
-    resourceId: targetUserId,
-    metadata: { role },
-    ip,
+  const seatGate = canLeaveOwnerSeat(target.role, owners, role !== "OWNER");
+  if (!seatGate.ok) deny(seatGate);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.organizationMember.update({
+      where: { id: target.id },
+      data: { role },
+    });
+    await writeAudit(
+      {
+        userId: actorId,
+        organizationId: orgId,
+        action: "member.role_updated",
+        resource: "membership",
+        resourceId: targetUserId,
+        metadata: { role },
+        ip,
+      },
+      tx,
+    );
   });
 }
 
@@ -211,24 +262,30 @@ export async function removeMember(actorId: string, orgId: string, targetUserId:
     where: { userId_organizationId: { userId: targetUserId, organizationId: orgId } },
   });
   if (!target) throw new HttpError(404, "Member not found");
-  if (target.role === "OWNER" && actor.role !== "OWNER") {
-    throw new HttpError(403, "Only an OWNER can remove an OWNER");
-  }
-  if (target.role === "OWNER") {
-    const owners = await prisma.organizationMember.count({
-      where: { organizationId: orgId, role: "OWNER" },
-    });
-    if (owners <= 1) throw new HttpError(400, "Cannot remove the last owner");
-  }
-  await prisma.organizationMember.delete({ where: { id: target.id } });
-  await writeAudit({
-    userId: actorId,
-    organizationId: orgId,
-    action: "member.removed",
-    resource: "membership",
-    resourceId: targetUserId,
-    metadata: {},
-    ip,
+
+  const removeGate = canRemoveMember(actor.role, target.role);
+  if (!removeGate.ok) deny(removeGate);
+
+  const owners = await prisma.organizationMember.count({
+    where: { organizationId: orgId, role: "OWNER" },
+  });
+  const seatGate = canLeaveOwnerSeat(target.role, owners, true);
+  if (!seatGate.ok) deny(seatGate);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.organizationMember.delete({ where: { id: target.id } });
+    await writeAudit(
+      {
+        userId: actorId,
+        organizationId: orgId,
+        action: "member.removed",
+        resource: "membership",
+        resourceId: targetUserId,
+        metadata: {},
+        ip,
+      },
+      tx,
+    );
   });
 }
 

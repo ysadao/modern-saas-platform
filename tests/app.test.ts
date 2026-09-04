@@ -141,19 +141,28 @@ test("unverified login blocked", async () => {
   assert.ok(blocked.data.error);
 });
 
-test("refresh rotation (old refresh fails)", async () => {
+test("refresh rotation: reuse revokes the whole session family", async () => {
   const session = await registerVerified("rotate");
+  // Second device / browser
+  const other = await json("POST", "/api/auth/login", {
+    email: session.email,
+    password: session.password,
+  });
+  assert.equal(other.status, 200);
+
   const rotated = await json("POST", "/api/auth/refresh", { refreshToken: session.refreshToken });
   assert.equal(rotated.status, 200);
-  assert.ok(rotated.data.accessToken);
   assert.ok(rotated.data.refreshToken);
   assert.notEqual(rotated.data.refreshToken, session.refreshToken);
 
   const reused = await json("POST", "/api/auth/refresh", { refreshToken: session.refreshToken });
   assert.equal(reused.status, 401);
 
-  const second = await json("POST", "/api/auth/refresh", { refreshToken: rotated.data.refreshToken });
-  assert.equal(second.status, 200);
+  // Legitimate sibling sessions must die after reuse detection
+  const afterReuseA = await json("POST", "/api/auth/refresh", { refreshToken: rotated.data.refreshToken });
+  const afterReuseB = await json("POST", "/api/auth/refresh", { refreshToken: other.data.refreshToken });
+  assert.equal(afterReuseA.status, 401);
+  assert.equal(afterReuseB.status, 401);
 });
 
 test("password reset", async () => {
@@ -222,27 +231,60 @@ test("org isolation: user B cannot read user A's org", async () => {
   assert.equal(projects.status, 403);
 });
 
-test("RBAC: viewer cannot create project", async () => {
+test("RBAC: viewer/member denies, admin cannot promote to OWNER", async () => {
   resetRateLimits();
   const owner = await registerVerified("rbacowner");
   const viewer = await registerVerified("rbacviewer");
+  const member = await registerVerified("rbacmember");
+  const admin = await registerVerified("rbacadmin");
   const org = await json("POST", "/api/organizations", { name: "RBAC Co" }, owner.accessToken);
   assert.equal(org.status, 201);
-  const invited = await json(
-    "POST",
-    `/api/organizations/${org.data.id}/members`,
-    { email: viewer.email, role: "VIEWER" },
-    owner.accessToken,
-  );
-  assert.equal(invited.status, 201);
 
-  const denied = await json(
+  for (const [user, role] of [
+    [viewer, "VIEWER"],
+    [member, "MEMBER"],
+    [admin, "ADMIN"],
+  ] as const) {
+    const invited = await json(
+      "POST",
+      `/api/organizations/${org.data.id}/members`,
+      { email: user.email, role },
+      owner.accessToken,
+    );
+    assert.equal(invited.status, 201, JSON.stringify(invited.data));
+  }
+
+  const viewerCreate = await json(
     "POST",
     `/api/organizations/${org.data.id}/projects`,
     { name: "Should fail", description: "" },
     viewer.accessToken,
   );
-  assert.equal(denied.status, 403);
+  assert.equal(viewerCreate.status, 403);
+
+  const memberCreate = await json(
+    "POST",
+    `/api/organizations/${org.data.id}/projects`,
+    { name: "Member project", description: "" },
+    member.accessToken,
+  );
+  assert.equal(memberCreate.status, 403);
+
+  const memberInvite = await json(
+    "POST",
+    `/api/organizations/${org.data.id}/members`,
+    { email: uniqueEmail("stranger"), role: "VIEWER" },
+    member.accessToken,
+  );
+  assert.equal(memberInvite.status, 403);
+
+  const adminPromote = await json(
+    "PATCH",
+    `/api/organizations/${org.data.id}/members/${member.user.id}`,
+    { role: "OWNER" },
+    admin.accessToken,
+  );
+  assert.equal(adminPromote.status, 403);
 
   const created = await json(
     "POST",
@@ -255,6 +297,33 @@ test("RBAC: viewer cannot create project", async () => {
   const listed = await json("GET", `/api/organizations/${org.data.id}/projects`, undefined, viewer.accessToken);
   assert.equal(listed.status, 200);
   assert.equal(listed.data.projects.length, 1);
+});
+
+test("project IDOR: outsider cannot read another org project by id", async () => {
+  resetRateLimits();
+  const a = await registerVerified("proj-a");
+  const b = await registerVerified("proj-b");
+  const org = await json("POST", "/api/organizations", { name: "Alpha Projects" }, a.accessToken);
+  assert.equal(org.status, 201);
+  const project = await json(
+    "POST",
+    `/api/organizations/${org.data.id}/projects`,
+    { name: "Secret", description: "private" },
+    a.accessToken,
+  );
+  assert.equal(project.status, 201);
+
+  const forbiddenGet = await json("GET", `/api/projects/${project.data.id}`, undefined, b.accessToken);
+  assert.equal(forbiddenGet.status, 404);
+  const forbiddenPatch = await json(
+    "PATCH",
+    `/api/projects/${project.data.id}`,
+    { name: "Hijacked" },
+    b.accessToken,
+  );
+  assert.equal(forbiddenPatch.status, 404);
+  const forbiddenDelete = await json("DELETE", `/api/projects/${project.data.id}`, undefined, b.accessToken);
+  assert.equal(forbiddenDelete.status, 404);
 });
 
 test("readiness pings postgres and request ids are echoed", async () => {

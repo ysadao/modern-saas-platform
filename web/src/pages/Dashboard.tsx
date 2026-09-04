@@ -9,6 +9,9 @@ interface Org {
   slug: string;
   role: string;
   createdAt: string;
+  memberCount?: number;
+  projectCount?: number;
+  auditCount?: number;
 }
 
 export function Dashboard() {
@@ -44,20 +47,63 @@ export function Dashboard() {
         <h1>Organizations</h1>
       </header>
       {error && <p className="banner error">{error}</p>}
+      <div className="stats">
+        <article className="stat">
+          <p className="eyebrow">Tenants</p>
+          <strong>{orgs.length}</strong>
+        </article>
+        <article className="stat">
+          <p className="eyebrow">Projects</p>
+          <strong>{orgs.reduce((n, o) => n + (o.projectCount ?? 0), 0)}</strong>
+        </article>
+        <article className="stat">
+          <p className="eyebrow">Members</p>
+          <strong>{orgs.reduce((n, o) => n + (o.memberCount ?? 0), 0)}</strong>
+        </article>
+        <article className="stat">
+          <p className="eyebrow">Audit events</p>
+          <strong>{orgs.reduce((n, o) => n + (o.auditCount ?? 0), 0)}</strong>
+        </article>
+      </div>
       <form className="inline-form" onSubmit={onCreate}>
         <input placeholder="New organization name" value={name} onChange={(e) => setName(e.target.value)} required />
         <button type="submit">Create tenant</button>
       </form>
-      <div className="grid">
-        {orgs.map((org) => (
-          <Link className="card" key={org.id} to={`/orgs/${org.id}`}>
-            <p className="eyebrow">{org.role}</p>
-            <h3>{org.name}</h3>
-            <p className="mono">{org.slug}</p>
-          </Link>
-        ))}
-        {orgs.length === 0 && <p className="muted">No organizations yet. Create one to become OWNER.</p>}
-      </div>
+      <table className="data">
+        <thead>
+          <tr>
+            <th>Tenant</th>
+            <th>Slug</th>
+            <th>Role</th>
+            <th>Members</th>
+            <th>Projects</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orgs.map((org) => (
+            <tr key={org.id}>
+              <td>
+                <Link to={`/orgs/${org.id}`}>{org.name}</Link>
+              </td>
+              <td className="mono">{org.slug}</td>
+              <td>
+                <span className="pill">{org.role}</span>
+              </td>
+              <td>{org.memberCount ?? "—"}</td>
+              <td>{org.projectCount ?? "—"}</td>
+              <td className="mono">{new Date(org.createdAt).toLocaleDateString()}</td>
+            </tr>
+          ))}
+          {orgs.length === 0 && (
+            <tr>
+              <td colSpan={6} className="muted">
+                No organizations yet. Create one to become OWNER.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </Shell>
   );
 }

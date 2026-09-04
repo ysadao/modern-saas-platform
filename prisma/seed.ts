@@ -110,6 +110,39 @@ export async function seed() {
     });
   }
 
+  const fleet = [
+    { slug: "aperture-freight", name: "Aperture Freight", project: "Lane scoring" },
+    { slug: "kestrel-audit", name: "Kestrel Audit", project: "Evidence locker" },
+    { slug: "helios-payments", name: "Helios Payments", project: "Clearing adapter" },
+    { slug: "meridian-cloud", name: "Meridian Cloud", project: "Cluster inventory" },
+    { slug: "volt-robotics", name: "Volt Robotics", project: "Fleet telemetry" },
+  ];
+  for (const tenant of fleet) {
+    const extra = await prisma.organization.upsert({
+      where: { slug: tenant.slug },
+      update: { name: tenant.name },
+      create: { name: tenant.name, slug: tenant.slug },
+    });
+    await prisma.organizationMember.upsert({
+      where: { userId_organizationId: { userId: demo.id, organizationId: extra.id } },
+      update: { role: Role.OWNER },
+      create: { userId: demo.id, organizationId: extra.id, role: Role.OWNER },
+    });
+    const hasProject = await prisma.project.findFirst({
+      where: { organizationId: extra.id, name: tenant.project },
+    });
+    if (!hasProject) {
+      await prisma.project.create({
+        data: {
+          organizationId: extra.id,
+          name: tenant.project,
+          description: `${tenant.project} for ${tenant.name}.`,
+          status: ProjectStatus.ACTIVE,
+        },
+      });
+    }
+  }
+
   const existingAudit = await prisma.auditLog.count({ where: { organizationId: org.id } });
   if (existingAudit === 0) {
     await prisma.auditLog.createMany({

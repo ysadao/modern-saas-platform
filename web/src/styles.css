@@ -149,6 +149,23 @@ label { display: grid; gap: 0.35rem; font-size: 0.85rem; color: var(--muted); }
 main { padding: 2rem 2.4rem 4rem; }
 .page-head { margin-bottom: 1.5rem; }
 .inline-form { display: flex; gap: 0.7rem; max-width: 520px; margin-bottom: 1.5rem; }
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1.4rem;
+}
+.stat {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.95rem 1.05rem;
+}
+.stat strong { display: block; font-size: 1.7rem; letter-spacing: -0.03em; }
+table.data { width: 100%; border-collapse: collapse; }
+table.data th, table.data td { text-align: left; padding: 0.7rem 0.5rem; border-bottom: 1px solid var(--line); font-size: 0.9rem; }
+table.data th { color: var(--muted); font-weight: 500; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; }
+table.data tbody tr:hover { background: #132024; }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

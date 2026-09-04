@@ -10,7 +10,7 @@
     "dev:web": "vite --config web/vite.config.ts",
     "build": "prisma generate && tsc -p tsconfig.json && vite build --config web/vite.config.ts",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test --test-timeout=120000 tests/*.test.ts",
+    "test": "node --import tsx --test --test-timeout=120000 tests/**/*.test.ts",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:push": "prisma db push",

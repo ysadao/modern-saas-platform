@@ -29,7 +29,7 @@ services:
       JWT_ACCESS_TTL: 15m
       JWT_REFRESH_TTL: 7d
       BCRYPT_ROUNDS: 10
-      DEMO_EXPOSE_TOKENS: "true"
+      DEMO_EXPOSE_TOKENS: "false"
     depends_on:
       postgres:
         condition: service_healthy
